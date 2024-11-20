@@ -17,6 +17,7 @@ package org.gridkit.jvmtool;
 
 import java.io.IOException;
 import java.net.MalformedURLException;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
@@ -24,6 +25,7 @@ import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.ObjID;
 import java.rmi.server.RMIClientSocketFactory;
+import java.rmi.server.RMISocketFactory;
 import java.rmi.server.RemoteObject;
 import java.rmi.server.RemoteRef;
 import java.util.Collections;
@@ -152,6 +154,7 @@ public class JmxConnectionInfo {
                 }
                 env = Collections.singletonMap(JMXConnector.CREDENTIALS, (Object)new String[]{user, password});
             }
+            System.out.println("Connecting to " + host + ":" + port + "...");
             MBeanServerConnection mserver = connectJmx(host, port, env);
             if (mserver == null) {
                 commandHost.fail(formatFailedMsg(host + ":" + port));
@@ -184,7 +187,10 @@ public class JmxConnectionInfo {
                     System.out.println("Failed to connect using TLS: " + e.toString());
                     System.out.println("Try to use plain socket");
                 }
-                Registry registry = LocateRegistry.getRegistry(host, port, new EnforcedSocketFactory(host, port, new DirectSocketFactory()));
+                EnforcedSocketFactory enforcedClientSocketFactory =
+                        new EnforcedSocketFactory(host, port, new DirectSocketFactory());
+                RMISocketFactory.setSocketFactory(new DirectClientServerSocketFactory(enforcedClientSocketFactory));
+                Registry registry = LocateRegistry.getRegistry(host, port, enforcedClientSocketFactory);
                 try {
                     rmiServer = (RMIServer) registry.lookup("jmxrmi");
                     rmiServer = overrideClientSocketFactory(host, port, rmiServer);
@@ -355,4 +361,31 @@ public class JmxConnectionInfo {
             return "DirectSocketFactory";
         }
     }
+
+    private class DirectClientServerSocketFactory extends RMISocketFactory {
+
+        private final RMIClientSocketFactory delegateClientSocketFactory;
+
+        private DirectClientServerSocketFactory(RMIClientSocketFactory delegateClientSocketFactory) {
+            this.delegateClientSocketFactory = delegateClientSocketFactory;
+        }
+
+        @Override
+        public Socket createSocket(String host, int port) throws IOException
+        {
+            return delegateClientSocketFactory.createSocket(host, port);
+        }
+
+        @Override
+        public ServerSocket createServerSocket(int port) throws IOException
+        {
+            return new ServerSocket(port);
+        }
+
+        @Override
+        public String toString() {
+            return "DirectClientServerSocketFactory";
+        }
+    }
+
 }
